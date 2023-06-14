@@ -1,10 +1,11 @@
-import 'dart:io';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:my_blog/crud.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:random_string/random_string.dart';
+import 'dart:typed_data';
+import 'package:firebase_core/firebase_core.dart';
 
 
 class CreateBlog extends StatefulWidget {
@@ -15,179 +16,155 @@ class CreateBlog extends StatefulWidget {
 }
 
 class _CreateBlogState extends State<CreateBlog> {
-  String authorName="", title="",desc="";
-
-
-  late File? selectedImage = null;
+  Uint8List? uploadedImage;
   final picker = ImagePicker();
-
-  //@override
-  //void initState() {
-  //selectedImage = 'https://www.google.com/url?sa=i&url=https%3A%2F%2Funsplash.com%2Fs%2Fphotos%2Fmountains&psig=AOvVaw36rZTTtTdwF4hzbAioUugC&ust=1686723145521000&source=images&cd=vfe&ved=0CBEQjRxqFwoTCPDH7cDLv_8CFQAAAAAdAAAAABAE';
-  //super.initState();
   bool _isLoading = false;
-  CrudMethods crudMethods = new CrudMethods();
+  String authorName = "", title = "", desc = "";
 
-
-  Future getImage() async {
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-
-    setState(() {
-      if(pickedFile!= null){
-        selectedImage = File(pickedFile.path);
-      }else{
-        print("no image selected");
-      }
-
-    });
+  Future<void> pickImage() async {
+    final pickedFile = await picker.getImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      setState(() {
+        uploadedImage = bytes;
+      });
+    }
   }
 
-  Future<void> uploadBlog() async{
-    if(selectedImage != null){
+  Future<void> uploadBlog() async {
+    if (uploadedImage != null) {
       setState(() {
         _isLoading = true;
       });
 
-      Reference firebaseStorageRef = FirebaseStorage.instance.ref().child("blogImage").child("${randomAlphaNumeric(9)}.jpg");
-      final UploadTask task= firebaseStorageRef.putFile(selectedImage!);
+      final imageName = "${randomAlphaNumeric(9)}.jpg";
+      final firebaseStorageRef =
+      FirebaseStorage.instance.ref().child("blogImage").child(imageName);
 
-      var imageUrl;
-      await task.whenComplete(() async{
-        try{
-          imageUrl= await firebaseStorageRef.getDownloadURL();
-        }catch(onError){
-          print("error");
-        }
-        print(imageUrl);
-      });
+      final uploadTask = firebaseStorageRef.putData(uploadedImage!);
+      final taskSnapshot = await uploadTask;
+      final imageUrl = await taskSnapshot.ref.getDownloadURL();
 
-
-      // var imageUrl = await (await task).ref.getDownloadURL();
-      // print("this is url $downloadUrl");
-
-      Map<String, dynamic> blogMap = {
+      Map<String, String> blogMap = {
         "imgUrl": imageUrl,
         "authorName": authorName,
         "title": title,
         "desc": desc
       };
-      crudMethods.addData(blogMap).then((result){
+
+      FirebaseFirestore.instance
+          .collection("blogs")
+          .add(blogMap)
+          .then((value) {
+        setState(() {
+          _isLoading = false;
+          uploadedImage = null;
+          authorName = "";
+          title = "";
+          desc = "";
+        });
         Navigator.pop(context);
+      }).catchError((error) {
+        print("Failed to add blog: $error");
       });
-    }else{}
+    }
   }
-
-
-  ///Future<void> getLostData() async {
-  ///final ImagePicker picker = ImagePicker();
-  ///final LostDataResponse response = await picker.retrieveLostData();
-  ///if (response.isEmpty) {
-  ///return;
-  ///}
-  ///final List<XFile>? files = response.files;
-  ///if (files != null) {
-  ///_handleLostFiles(files);
-  ///} else {
-  ///_handleError(response.exception);
-  ///}
-  ///}
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(
-          title: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              Text("Flutter", style: TextStyle(
-                  fontSize: 22
-              ),
-              ),
-              Text("Blog", style: TextStyle(fontSize: 22, color: Colors.blue),
-              )
-            ],
-          ),
-          backgroundColor: Colors.transparent,
-          elevation: 0.0,
-          actions: <Widget>[
-            GestureDetector(
-              onTap: () {
-                uploadBlog();
-              },
-              child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Icon(Icons.file_upload)),
-            )
+      appBar: AppBar(
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Text(
+              "Flutter",
+              style: TextStyle(fontSize: 22),
+            ),
+            Text(
+              "Blog",
+              style: TextStyle(fontSize: 22, color: Colors.blue),
+            ),
           ],
         ),
-        body: _isLoading
-            ? Container(
-          alignment: Alignment.center,
-          child: CircularProgressIndicator(),
-        )
-            : Container(
-          child: Column(children: <Widget>[
-            SizedBox(height: 10,),
-            GestureDetector(
-              onTap: () {
-                getImage();
-              },
-              child: selectedImage != null
-                  ? Container(
-                margin: EdgeInsets.symmetric(horizontal: 16),
-                height: 150,
-                width: MediaQuery.of(context).size.width,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: Image.network(
-                    'https://unsplash.com/s/photos/mountains',
-                    //selectedImage!,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-              )
-                  :Container(
-                margin: EdgeInsets.symmetric(horizontal: 16),
-                height: 150,
-                decoration: BoxDecoration(
+        backgroundColor: Colors.transparent,
+        elevation: 0.0,
+        actions: <Widget>[
+          GestureDetector(
+            onTap: () {
+              uploadBlog();
+            },
+            child: Container(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: Icon(Icons.file_upload),
+            ),
+          )
+        ],
+      ),
+      body: _isLoading
+          ? Container(
+        alignment: Alignment.center,
+        child: CircularProgressIndicator(),
+      )
+          : SingleChildScrollView(
+        child: Container(
+          child: Column(
+            children: <Widget>[
+              SizedBox(height: 8),
+              GestureDetector(
+                onTap: pickImage,
+                child: uploadedImage != null
+                    ? Container(
+                  margin: EdgeInsets.symmetric(horizontal: 16),
+                  height: 300,
+                  width: MediaQuery.of(context).size.width,
+                  child: Image.memory(uploadedImage!),
+                )
+                    : Container(
+                  margin: EdgeInsets.symmetric(horizontal: 16),
+                  height: 300,
+                  decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(6)),
-                width: MediaQuery.of(context).size.width,
-                child: Icon(
-                  Icons.add_a_photo,
-                  color: Colors.black45,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  width: MediaQuery.of(context).size.width,
+                  child: Icon(
+                    Icons.add_a_photo,
+                    color: Colors.black45,
+                  ),
+
                 ),
-
               ),
-            ),
-            SizedBox(
-              height: 8,
-            ),
-            Container(
-              margin: EdgeInsets.symmetric(horizontal: 16),
-              child: Column(
-                children: <Widget>[
-                  TextField(
-                    decoration: InputDecoration(hintText: "Author Name"),
-                    onChanged: (val){
-                      authorName = val;
-                    },
-                  ),
-                  TextField(
-                    decoration: InputDecoration(hintText: "Title"),
-                    onChanged: (val){
-                      title = val;
-                    },
-                  ),
-                  TextField(
-                    decoration: InputDecoration(hintText: "Desc"),
-                    onChanged: (val){
-                      desc = val;
-                    },
-                  )
-                ],),)
 
-          ],),)
+              SizedBox(height: 8),
+              TextField(
+                decoration: InputDecoration(hintText: "Author Name"),
+                onChanged: (val) {
+                  setState(() {
+                    authorName = val;
+                  });
+                },
+              ),
+              TextField(
+                decoration: InputDecoration(hintText: "Title"),
+                onChanged: (val) {
+                  setState(() {
+                    title = val;
+                  });
+                },
+              ),
+              TextField(
+                decoration: InputDecoration(hintText: "Desc"),
+                onChanged: (val) {
+                  setState(() {
+                    desc = val;
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
